@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Cement Plant Optimizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #8B5CF6;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #5B21B6;
+            transition: background 0.2s ease-in-out;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            background: #8B5CF6;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #5B21B6;
+            transition: background 0.2s ease-in-out;
+        }
+        .custom-file-input::-webkit-file-upload-button {
+            visibility: hidden;
+        }
+        .custom-file-input::before {
+            content: 'Select File';
+            display: inline-block;
+            background: #8B5CF6;
+            color: white;
+            border: 1px solid #5B21B6;
+            border-radius: 9999px;
+            padding: 8px 16px;
+            outline: none;
+            white-space: nowrap;
+            -webkit-user-select: none;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.875rem;
+            transition: background-color 0.2s;
+        }
+        .custom-file-input:hover::before {
+            background: #7C3AED;
+        }
+        .custom-file-input:active::before {
+            background: #6D28D9;
+        }
+    </style>
+</head>
+<body class="bg-gray-950 text-white min-h-screen flex flex-col items-center justify-start p-4 sm:p-8">
+
+    <div class="w-full max-w-7xl bg-gray-900 rounded-2xl shadow-xl overflow-hidden p-6 md:p-10 flex flex-col space-y-10">
+        
+        <h1 class="text-4xl font-extrabold text-gray-200 text-center">AI Cement Plant Optimizer</h1>
+        <p class="text-gray-400 text-center">Leverage the power of AI by adjusting critical process variables and uploading imagery from key plant locations to generate precise KPI Predictions, in-depth Visual Analysis, and actionable Prescriptive Recommendations.</p>
+
+        <div id="input-controls-container" class="flex flex-col space-y-6">
+            
+            <div class="border border-purple-600 rounded-xl p-6">
+                <h2 class="text-xl font-semibold text-gray-300 mb-4">Raw Material & Blending Inputs</h2>
+                <div id="blending-inputs" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                </div>
+            </div>
+            
+            <div class="border border-purple-600 rounded-xl p-6">
+                <h2 class="text-xl font-semibold text-gray-300 mb-4">Pyroprocessing (Kiln) Inputs</h2>
+                <div id="pyroprocessing-inputs" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                </div>
+            </div>
+        </div>
+
+        <div class="flex flex-col space-y-4">
+            <button id="get-recommendations-btn"
+                    class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transition-all duration-300 transform hover:scale-[1.00]">
+                Get Prescriptive Recommendations
+            </button>
+            <div id="loading-indicator" class="text-gray-400 hidden text-center">
+                <p>Analyzing inputs and generating recommendations...</p>
+            </div>
+            <div id="error-message" class="mt-4 text-red-400 hidden text-center"></div>
+        </div>
+
+
+        <div class="bg-gray-800 rounded-xl p-6 shadow-lg border-2 border-purple-600">
+            <h2 class="text-xl font-semibold text-gray-300 mb-4">Predicted KPIs</h2>
+            <div id="kpi-output-container" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="p-4 bg-gray-700 rounded-lg text-center">
+                    <p class="text-xs text-gray-400">clinker_free_lime_% (Quality)</p>
+                    <p id="output-clinker_free_lime_%" class="text-2xl font-bold mt-1 text-gray-400">N/A</p>
+                </div>
+                <div class="p-4 bg-gray-700 rounded-lg text-center">
+                    <p class="text-xs text-gray-400">kiln_specific_thermal_energy_Kcal/kg_clinker (Efficiency)</p>
+                    <p id="output-kiln_specific_thermal_energy_Kcal/kg_clinker" class="text-2xl font-bold mt-1 text-gray-400">N/A</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="recommendation-output" class="bg-gray-800 rounded-xl p-6 shadow-lg hidden border-2 border-purple-600">
+        </div>
+
+        <hr class="border-gray-700 my-4">
+
+        <h2 class="text-2xl font-bold text-gray-200 text-center">Visual Analysis of Critical Processes in Plant</h2>
+
+        <div id="visual-analysis-input-block" class="bg-gray-800 rounded-xl p-6 shadow-lg border-2 border-purple-600 space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="p-4 border border-red-600 rounded-lg space-y-3">
+                    <h3 class="text-lg font-semibold text-gray-300">Kiln Thermal Image</h3>
+                    <p class="text-sm text-gray-400">Upload a thermal image of the kiln shell for brick loss assessment.</p>
+                    <input type="file" id="kiln-image-upload" accept="image/*" class="w-full text-sm text-gray-300 custom-file-input"/>
+                    <p id="kiln-file-name" class="text-xs text-gray-500 italic"></p>
+                    <img id="kiln-image-preview" class="mt-3 max-h-40 w-full object-contain rounded-lg" style="display:none;" />
+                </div>
+                <div class="p-4 border border-yellow-600 rounded-lg space-y-3">
+                    <h3 class="text-lg font-semibold text-gray-300">Raw Material Conveyor Image</h3>
+                    <p class="text-sm text-gray-400">Upload an image of the conveyor for material flow and integrity check.</p>
+                    <input type="file" id="conveyor-image-upload" accept="image/*" class="w-full text-sm text-gray-300 custom-file-input"/>
+                    <p id="conveyor-file-name" class="text-xs text-gray-500 italic"></p>
+                    <img id="conveyor-image-preview" class="mt-3 max-h-40 w-full object-contain rounded-lg" style="display:none;" />
+                </div>
+            </div>
+
+            <div class="text-center pt-4">
+                <button id="start-visual-analysis-btn"
+                        class="w-full md:w-1/2 bg-gray-500 text-white font-bold py-3 px-8 rounded-lg shadow-lg transition-all duration-300 cursor-not-allowed"
+                        disabled>
+                    Start Visual Analysis
+                </button>
+                <div id="visual-loading-indicator" class="mt-4 text-gray-400 hidden">
+                    <p>Analyzing image(s) and generating recommendations....</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div id="image-recommendation-output" class="bg-gray-800 rounded-xl p-6 shadow-lg border-2 border-gray-600">
+                <h2 class="text-xl font-semibold text-gray-300">Kiln Thermal Assessment</h2>
+                <div id="image-analysis-results" class="mt-4 space-y-3">
+                    <p class="text-gray-400 italic">Results will appear here after analysis.</p>
+                </div>
+            </div>
+            <div id="conveyor-recommendation-output" class="bg-gray-800 rounded-xl p-6 shadow-lg border-2 border-gray-600">
+                <h2 class="text-xl font-semibold text-gray-300">Conveyor Flow Assessment</h2>
+                <div id="conveyor-analysis-results" class="mt-4 space-y-3">
+                    <p class="text-gray-400 italic">Results will appear here after analysis.</p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+    
+    <footer class="w-full max-w-7xl text-center mt-10 p-4 text-gray-600 text-sm">
+        Developed by Manish Gupta (mgupta.power@gmail.com) for Gen AI Exchange Hackathon
+    </footer>
+
+    <script>
+        const BACKEND_ENDPOINT_URL = 'https://backend-logic-for-prediction-59492411071.us-central1.run.app';
+        const THERMAL_ENERGY_ENDPOINT_URL = 'https://backend-logic-for-prediction-kiln-thermal-energy-59492411071.us-central1.run.app';
+        const PRESCRIPTIVE_SERVICE_URL = 'https://backend-logic-for-recommendation-59492411071.us-central1.run.app';
+        const KILN_ANALYSIS_ENDPOINT_URL = 'https://backend-logic-for-image-analysis-59492411071.us-central1.run.app'; 
+        const CONVEYOR_ANALYSIS_ENDPOINT_URL = 'https://backend-logic-for-image-analysis-conveyor-belt-59492411071.us-central1.run.app'; 
+
+
+        const inputFeatures = [
+            { id: 'limestone_feed_rate_pct', label: 'Limestone Feed Rate (%)', min: 70.20, max: 85.80, default: 78.0, process: 'blending' },
+            { id: 'clay_feed_rate_pct', label: 'Clay Feed Rate (%)', min: 14.40, max: 17.60, default: 16.0, process: 'blending' },
+            { id: 'iron_ore_feed_rate_pct', label: 'Iron Ore Feed Rate (%)', min: 3.15, max: 3.85, default: 3.5, process: 'blending' },
+            { id: 'bauxite_feed_rate_pct', label: 'Bauxite Feed Rate (%)', min: 2.25, max: 2.75, default: 2.5, process: 'blending' },
+            { id: 'raw_meal_lsf_ratio', label: 'Raw Meal LSF Ratio', min: 90.16, max: 99.96, default: 95.0, process: 'blending' },
+            { id: 'raw_meal_feed_rate_tph', label: 'Raw Meal Feed Rate (TPH)', min: 161.70, max: 188.70, default: 175.0, process: 'pyroprocessing' },
+            { id: 'fuel_feed_rate_tph', label: 'Fuel Feed Rate (TPH)', min: 8.33, max: 10.71, default: 9.5, process: 'pyroprocessing' },
+            { id: 'fuel_alt_substitution_rate_pct', label: 'Fuel Alt. Substitution Rate (%)', min: 9.80, max: 30.60, default: 20.0, process: 'pyroprocessing' },
+            { id: 'kiln_hood_pressure_mmH2O', label: 'Kiln Hood Pressure (mmH₂O)', min: -8.16, max: -3.92, default: -6.0, process: 'pyroprocessing' },
+            { id: 'kiln_burner_air_flow_m3_hr', label: 'Kiln Burner Air Flow (m³/hr)', min: 22540.00, max: 27540.00, default: 25000.0, process: 'pyroprocessing' },
+            { id: 'kiln_main_drive_current_amp', label: 'Kiln Main Drive Current (Amp)', min: 180.00, max: 220.00, default: 200.0, process: 'pyroprocessing' }
+        ];
+
+        function renderInputControls() {
+            const groupedInputs = inputFeatures.reduce((acc, feature) => {
+                (acc[feature.process] = acc[feature.process] || []).push(feature);
+                return acc;
+            }, {});
+
+            for (const process in groupedInputs) {
+                const container = document.getElementById(`${process}-inputs`);
+                if (container) {
+                    container.innerHTML = ''; 
+                    groupedInputs[process].forEach(feature => {
+                        const precision = (feature.max < 100 && feature.max % 1 !== 0) ? 3 : 2;
+
+                        const controlHtml = `
+                            <div class="space-y-2">
+                                <label for="${feature.id}-slider" class="block text-sm font-medium text-gray-300">
+                                    ${feature.label}
+                                </label>
+                                <div class="flex space-x-4 items-center">
+                                    <input type="range" id="${feature.id}-slider" min="${feature.min}" max="${feature.max}" value="${feature.default}" step="${1 / Math.pow(10, precision)}"
+                                           class="w-3/4 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                                    <input type="number" id="${feature.id}-text" min="${feature.min}" max="${feature.max}" value="${feature.default}" step="${1 / Math.pow(10, precision)}"
+                                           class="w-1/4 p-2 bg-gray-700 border border-purple-600 rounded-lg text-white text-sm text-center">
+                                </div>
+                            </div>
+                        `;
+                        container.innerHTML += controlHtml;
+                    });
+                }
+            }
+
+            inputFeatures.forEach(feature => {
+                const slider = document.getElementById(`${feature.id}-slider`);
+                const textInput = document.getElementById(`${feature.id}-text`);
+                const precision = (feature.max < 100 && feature.max % 1 !== 0) ? 3 : 2; 
+
+                if (slider && textInput) {
+                    slider.addEventListener('input', (e) => {
+                        let val = parseFloat(e.target.value);
+                        val = Math.round(val * Math.pow(10, precision)) / Math.pow(10, precision);
+                        textInput.value = val;
+                    });
+                    
+                    textInput.addEventListener('change', (e) => {
+                        let val = parseFloat(e.target.value);
+                        
+                        if (val < feature.min) val = feature.min;
+                        if (val > feature.max) val = feature.max;
+                        
+                        val = Math.round(val * Math.pow(10, precision)) / Math.pow(10, precision);
+                        
+                        textInput.value = val;
+                        slider.value = val;
+                    });
+                }
+            });
+        }
+
+        function updateOutputUI(predictions) {
+            const kpiKeys = ['clinker_free_lime_%', 'kiln_specific_thermal_energy_Kcal/kg_clinker'];
+
+            kpiKeys.forEach(kpi => {
+                const outputElement = document.getElementById(`output-${kpi}`);
+                const value = predictions[kpi];
+                
+                if (outputElement && value !== 'N/A' && value !== null && value !== undefined) {
+                    outputElement.textContent = parseFloat(value).toFixed(2);
+                    let kpiClass = 'text-2xl font-bold mt-1 text-green-400'; 
+                    
+                    if (kpi === 'clinker_free_lime_%') {
+                        const freeLimeValue = parseFloat(value);
+                        if (freeLimeValue > 2.0) {
+                            kpiClass = 'text-2xl font-bold mt-1 text-red-400';
+                        } else if (freeLimeValue > 1.8 || freeLimeValue < 0.5) {
+                             kpiClass = 'text-2xl font-bold mt-1 text-yellow-400';
+                        }
+                    } else if (kpi === 'kiln_specific_thermal_energy_Kcal/kg_clinker') {
+                        const thermalEnergyValue = parseFloat(value);
+                        if (thermalEnergyValue > 860) {
+                            kpiClass = 'text-2xl font-bold mt-1 text-red-400'; 
+                        } else if (thermalEnergyValue > 830 || thermalEnergyValue < 780) {
+                            kpiClass = 'text-2xl font-bold mt-1 text-yellow-400'; 
+                        }
+                    }
+                    
+                    outputElement.className = kpiClass;
+                } else if (outputElement) {
+                    outputElement.textContent = 'N/A';
+                    outputElement.className = 'text-2xl font-bold mt-1 text-gray-400';
+                }
+            });
+        }
+        
+        function displayPrescriptiveRecommendations(recommendations) {
+            const container = document.getElementById('recommendation-output');
+            
+            const filteredRecommendations = recommendations.filter(rec => rec.action !== 'MAINTAIN');
+            
+            let tableHtml = `
+                <h2 class="text-xl font-semibold text-gray-300 mb-4">Prescriptive Control Recommendations</h2>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-700">
+                        <thead>
+                            <tr class="text-left text-xs font-medium text-gray-400 uppercase tracking-wider bg-gray-700">
+                                <th class="p-3">Variable</th>
+                                <th class="p-3">Action</th>
+                                <th class="p-3">Magnitude</th>
+                                <th class="p-3">Rationale</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-800">
+            `;
+
+            if (filteredRecommendations && filteredRecommendations.length > 0) {
+                filteredRecommendations.forEach(rec => {
+                    const actionClass = rec.action === 'INCREASE' ? 'text-green-400' : 
+                                        rec.action === 'DECREASE' ? 'text-red-400' : 'text-purple-400';
+                    const magnitudeDisplay = rec.magnitude === 0.0 ? '0.0' : `${rec.action === 'INCREASE' ? '+' : rec.action === 'DECREASE' ? '-' : '±'} ${rec.magnitude.toFixed(2)}`;
+
+                    tableHtml += `
+                        <tr class="hover:bg-gray-800 transition-colors duration-150">
+                            <td class="p-3 text-sm font-medium text-gray-200">${rec.variable_name}</td>
+                            <td class="p-3 text-sm font-bold ${actionClass}">${rec.action}</td>
+                            <td class="p-3 text-sm font-bold text-white">${magnitudeDisplay}</td>
+                            <td class="p-3 text-xs text-gray-400">${rec.description}</td>
+                        </tr>
+                    `;
+                });
+            } else {
+                 tableHtml += `
+                    <tr>
+                        <td colspan="4" class="p-4 text-center text-gray-500">No active adjustments recommended. Process is stable or predicted deviation is minor.</td>
+                    </tr>
+                `;
+            }
+
+            tableHtml += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            container.innerHTML = tableHtml;
+            container.classList.remove('hidden'); 
+        }
+        
+        async function getPredictionsAndRecommendations() {
+            const btn = document.getElementById('get-recommendations-btn');
+            const loadingIndicator = document.getElementById('loading-indicator');
+            const recommendationOutput = document.getElementById('recommendation-output');
+            const errorMessageElement = document.getElementById('error-message');
+            
+            btn.disabled = true;
+            btn.innerHTML = 'Predicting & Recommending...';
+            loadingIndicator.style.display = 'block';
+            
+            recommendationOutput.classList.add('hidden');
+            errorMessageElement.style.display = 'none';
+
+            const data = {};
+            inputFeatures.forEach(feature => {
+                const inputElement = document.getElementById(`${feature.id}-text`);
+                if (inputElement) {
+                    data[feature.id] = parseFloat(inputElement.value);
+                }
+            });
+
+            let combinedPredictions = {};
+
+            try {
+                const fetchMainKPIs = fetch(BACKEND_ENDPOINT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                }).then(async response => {
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`Main KPI API Error (${response.status}): ${errorText}`);
+                    }
+                    return response.json();
+                });
+
+                const fetchThermalEnergy = fetch(THERMAL_ENERGY_ENDPOINT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data) 
+                }).then(async response => {
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`Thermal Energy API Error (${response.status}): ${errorText}`);
+                    }
+                    return response.json();
+                });
+
+                const [predictions1, predictions2] = await Promise.all([fetchMainKPIs, fetchThermalEnergy]);
+                
+                combinedPredictions = { ...predictions1, ...predictions2 };
+
+                updateOutputUI(combinedPredictions);
+                
+                const recommendationPayload = {
+                    current_inputs: data, 
+                    predicted_kpis: {
+                        "clinker_free_lime_pct": combinedPredictions['clinker_free_lime_%'],
+                        "kiln_specific_thermal_energy_Kcal/kg_clinker": combinedPredictions['kiln_specific_thermal_energy_Kcal/kg_clinker'] 
+                    }
+                };
+
+                const fetchRecommendations = await fetch(PRESCRIPTIVE_SERVICE_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(recommendationPayload)
+                }).then(async response => {
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`Prescriptive API Error (${response.status}): ${errorText}`);
+                    }
+                    return response.json();
+                });
+
+                displayPrescriptiveRecommendations(fetchRecommendations); 
+
+            } catch (error) {
+                console.error('Prescriptive flow failed:', error);
+                
+                recommendationOutput.classList.remove('hidden'); 
+                recommendationOutput.innerHTML = `
+                    <h2 class="text-xl font-semibold text-gray-300 mb-4">Prescriptive Control Recommendations</h2>
+                    <p class="text-red-400 font-bold">❌ Error fetching recommendations:</p>
+                    <p class="text-red-300 text-sm mt-2">${error.message}</p>
+                `;
+            } finally {
+                loadingIndicator.style.display = 'none';
+                btn.disabled = false;
+                btn.innerHTML = "Get Prescriptive Recommendations";
+            }
+        }
+        
+        const toBase64 = file => new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result.split(',')[1]);
+            reader.onerror = error => reject(error);
+        });
+
+        function getSeverityColor(severity) {
+            if (severity === 'low') return { color: 'text-green-400', border: 'border-green-600' };
+            if (severity === 'medium') return { color: 'text-yellow-400', border: 'border-yellow-600' };
+            if (severity === 'high') return { color: 'text-red-500', border: 'border-red-600' };
+            return { color: 'text-gray-400', border: 'border-gray-600' };
+        }
+        
+        function updateVisualAnalysisButtonState() {
+            const kilnFile = document.getElementById('kiln-image-upload').files.length > 0;
+            const conveyorFile = document.getElementById('conveyor-image-upload').files.length > 0;
+            const button = document.getElementById('start-visual-analysis-btn');
+            
+            const hasFile = kilnFile || conveyorFile;
+
+            button.disabled = !hasFile;
+            
+            if (hasFile) {
+                button.classList.remove('bg-gray-500', 'cursor-not-allowed');
+                button.classList.add('bg-purple-600', 'hover:bg-purple-700', 'shadow-purple-500/50');
+            } else {
+                button.classList.add('bg-gray-500', 'cursor-not-allowed');
+                button.classList.remove('bg-purple-600', 'hover:bg-purple-700', 'shadow-purple-500/50');
+            }
+        }
+
+        function displayFileName(inputId, nameId, previewId) {
+            const input = document.getElementById(inputId);
+            const nameP = document.getElementById(nameId);
+            const previewImg = document.getElementById(previewId);
+
+            if (input.files.length > 0) {
+                const file = input.files[0];
+                nameP.textContent = `File Selected: ${file.name}`;
+                nameP.classList.remove('text-gray-500');
+                nameP.classList.add('text-purple-400');
+                
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    previewImg.src = e.target.result;
+                    previewImg.style.display = 'block';
+                }
+                reader.readAsDataURL(file);
+
+            } else {
+                 nameP.textContent = '';
+                 previewImg.src = '';
+                 previewImg.style.display = 'none';
+            }
+            updateVisualAnalysisButtonState();
+        }
+
+        async function startVisualAnalysis() {
+            const kilnInput = document.getElementById('kiln-image-upload');
+            const conveyorInput = document.getElementById('conveyor-image-upload');
+            const analyzeBtn = document.getElementById('start-visual-analysis-btn');
+            const loadingIndicator = document.getElementById('visual-loading-indicator');
+
+            const hasKilnFile = kilnInput.files.length > 0;
+            const hasConveyorFile = conveyorInput.files.length > 0;
+
+            if (!hasKilnFile && !hasConveyorFile) return;
+
+            analyzeBtn.disabled = true;
+            analyzeBtn.innerHTML = 'Processing...';
+            loadingIndicator.style.display = 'block';
+
+            const analysisPromises = [];
+
+            const analyzeSingleImage = async (fileInput, endpoint, outputCardId, resultsContainerId, analysisType) => {
+                if (fileInput.files.length > 0) {
+                    return analyzeImage(fileInput.files[0], endpoint, outputCardId, resultsContainerId, analysisType);
+                } else {
+                    const resultsContainer = document.getElementById(resultsContainerId);
+                    const outputCard = document.getElementById(outputCardId);
+                    resultsContainer.innerHTML = '<p class="text-gray-400 italic">Results will appear here after analysis.</p>';
+                    outputCard.className = 'bg-gray-800 rounded-xl p-6 shadow-lg border-2 border-gray-600';
+                    return Promise.resolve();
+                }
+            };
+            
+            analysisPromises.push(
+                analyzeSingleImage(kilnInput, KILN_ANALYSIS_ENDPOINT_URL, 'image-recommendation-output', 'image-analysis-results', 'Kiln')
+            );
+            
+            analysisPromises.push(
+                analyzeSingleImage(conveyorInput, CONVEYOR_ANALYSIS_ENDPOINT_URL, 'conveyor-recommendation-output', 'conveyor-analysis-results', 'Conveyor')
+            );
+
+            await Promise.all(analysisPromises);
+
+            loadingIndicator.style.display = 'none';
+            analyzeBtn.innerHTML = 'Start Visual Analysis';
+            updateVisualAnalysisButtonState();
+        }
+
+        async function analyzeImage(file, endpoint, outputCardId, resultsContainerId, analysisType) {
+            const outputCard = document.getElementById(outputCardId);
+            const resultsContainer = document.getElementById(resultsContainerId);
+
+            resultsContainer.innerHTML = `<p class="text-gray-400 italic">Analyzing ${analysisType} image. Please wait...</p>`;
+            outputCard.className = 'bg-gray-800 rounded-xl p-6 shadow-lg border-2 border-yellow-500 animate-pulse';
+
+            let base64Image;
+            try {
+                base64Image = await toBase64(file);
+            } catch (error) {
+                resultsContainer.innerHTML = `<p class="text-red-400">Error reading file: ${error.message}</p>`;
+                outputCard.className = 'bg-gray-800 rounded-xl p-6 shadow-lg border-2 border-red-500';
+                return;
+            }
+
+            const payload = {
+                image_data_b64: base64Image,
+                mime_type: file.type
+            };
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP error! Status: ${response.status}. Details: ${errorText}`);
+                }
+                
+                const analysis = await response.json();
+                updateImageAnalysisUI(analysis, outputCard, resultsContainer, analysisType);
+
+            } catch (error) {
+                console.error(`${analysisType} Image analysis failed:`, error);
+                resultsContainer.innerHTML = `
+                    <p class="text-red-400 font-bold">Error analyzing ${analysisType} image: ${error.message}</p>
+                `;
+                outputCard.className = 'bg-gray-800 rounded-xl p-6 shadow-lg border-2 border-red-500';
+            }
+        }
+
+        function updateImageAnalysisUI(analysis, outputCard, container, analysisType) {
+            const { color: severityColor, border: borderColor } = getSeverityColor(analysis.severity_level);
+            
+            outputCard.className = `bg-gray-800 rounded-xl p-6 shadow-lg border-2 ${borderColor}`;
+
+            let adjustmentDisplay = '';
+            const adjustment = analysis.adjustments[0];
+            if (adjustment) {
+                if (adjustment.action === 'STOP') {
+                    adjustmentDisplay = `Adjustment: ${adjustment.action} ${adjustment.variable} (set to 0 tph)`;
+                } else if (adjustment.action === 'MAINTENANCE') {
+                    adjustmentDisplay = `Required Action: Immediate ${adjustment.action}`;
+                } else {
+                    adjustmentDisplay = `Adjustment: ${adjustment.action} ${adjustment.variable} by ${adjustment.value} tph`;
+                }
+            }
+
+            container.innerHTML = `
+                <div class="space-y-3">
+                    <p class="text-xs font-semibold uppercase text-gray-400">Recommendation Type</p>
+                    <p class="text-lg font-bold ${severityColor}">${analysis.recommendation_type}</p>
+                </div>
+                <div class="space-y-3">
+                    <p class="text-xs font-semibold uppercase text-gray-400">Visual Finding</p>
+                    <p class="text-md text-gray-200">${analysis.visual_finding}</p>
+                </div>
+                <div class="space-y-3">
+                    <p class="text-xs font-semibold uppercase text-gray-400">Severity</p>
+                    <p class="text-md font-bold ${severityColor} capitalize">${analysis.severity_level}</p>
+                </div>
+                <div class="space-y-3 p-4 bg-gray-700 rounded-lg">
+                    <p class="text-xs font-semibold uppercase ${severityColor}">Prescriptive Action</p>
+                    <p class="text-md text-white">${analysis.recommendation}</p>
+                    <p class="text-sm italic text-gray-300">${adjustmentDisplay}</p>
+                </div>
+            `;
+        }
+
+        window.onload = () => {
+            renderInputControls();
+            
+            document.getElementById('get-recommendations-btn').addEventListener('click', getPredictionsAndRecommendations);
+
+            const kilnFileInput = document.getElementById('kiln-image-upload');
+            const conveyorFileInput = document.getElementById('conveyor-image-upload');
+            
+            kilnFileInput.addEventListener('change', () => displayFileName('kiln-image-upload', 'kiln-file-name', 'kiln-image-preview'));
+            conveyorFileInput.addEventListener('change', () => displayFileName('conveyor-image-upload', 'conveyor-file-name', 'conveyor-image-preview'));
+
+            document.getElementById('start-visual-analysis-btn').addEventListener('click', startVisualAnalysis);
+        };
+    </script>
+</body>
+</html>

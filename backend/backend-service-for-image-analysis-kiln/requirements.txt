@@ -1,0 +1,4 @@
+google-genai
+google-cloud-storage
+Flask
+Flask-Cors

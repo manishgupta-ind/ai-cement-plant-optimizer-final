@@ -1,0 +1,286 @@
+import os
+import json
+from flask import Flask, request as flask_request, jsonify
+from flask_cors import CORS
+from base64 import b64decode
+from google.cloud import storage 
+from google import genai
+from google.genai import types
+
+# --- 1. CONFIGURATION ---
+# NOTE: GCS_BUCKET_NAME must be set as an environment variable or hardcoded here.
+GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "hackathon-cement-plant-image-data")
+CONVEYOR_GCS_PREFIX = "conveyor_belt/" 
+
+# Material feed rate operating range constants
+FEED_RATE_NORMAL_MIN = 170.0 
+FEED_RATE_NORMAL_MAX = 180.0
+FEED_RATE_VARIABLE = "raw_meal_feed_rate_tph" 
+
+# --- 2. GLOBAL INITIALIZATION ---
+# Initialize clients at the global scope for efficiency
+storage_client = storage.Client()
+_gemini_client = None
+
+def get_gemini_client():
+    """
+    Initializes the Gemini client, prioritizing an API key from the environment 
+    or falling back to the Vertex AI configuration (Standard Cloud Deployment).
+    """
+    global _gemini_client
+    if _gemini_client is None:
+        print("Attempting to initialize Gemini Client...")
+        
+        API_KEY = os.environ.get('GEMINI_API_KEY')
+        
+        if API_KEY:
+            _gemini_client = genai.Client(api_key=API_KEY)
+            print("Gemini Client initialized using explicit API Key.")
+        else:
+            # Fallback to Vertex AI context (Best practice for Cloud Run/Functions)
+            PROJECT_ID = os.environ.get('GOOGLE_CLOUD_PROJECT') 
+            
+            _gemini_client = genai.Client(
+                vertexai=True,
+                project=PROJECT_ID,
+                location='us-central1'
+            )
+            print(f"Gemini Client initialized for Vertex AI Project: {PROJECT_ID}")
+            
+    return _gemini_client
+
+# Initialize the Flask application
+app = Flask(__name__)
+# Enable CORS for the frontend to access the API
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+
+# -----------------------------------------------------------------------------
+
+# --- 3. GCS UTILITY FUNCTION ---
+
+def get_gcs_image_uris(bucket_name: str, prefix: str) -> list[str]:
+    """Lists all image URIs in the specified GCS bucket and prefix."""
+    
+    bucket = storage_client.bucket(bucket_name)
+    blobs = bucket.list_blobs(prefix=prefix)
+    
+    # Filter for valid image file extensions and exclude the folder prefix itself
+    uris = [
+        f"gs://{bucket_name}/{blob.name}" 
+        for blob in blobs 
+        if blob.name != prefix and blob.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))
+    ]
+    
+    if not uris:
+        raise ValueError(f"No few-shot images found in gs://{bucket_name}/{prefix}. Please verify images and path.")
+        
+    return sorted(uris)
+
+# -----------------------------------------------------------------------------
+
+# --- 4. PROMPT CONSTRUCTION LOGIC (Adapted for Conveyor Belt) ---
+
+def get_target_json_conveyor(uri: str):
+    """Determines the target JSON based on the image file name/path for the conveyor belt."""
+    
+    KPI_FOCUS = "raw_meal_feed_rate_tph"
+    
+    if "conveyor_belt_normal" in uri:
+        return {
+            "recommendation_type": "MAINTENANCE_ADVISORY",
+            "kpi_focus": KPI_FOCUS,
+            "visual_finding": "Conveyor belt is clean, material is centered, and there is no visible wear or spillage.",
+            "severity_level": "low",
+            "adjustments": [{"variable": FEED_RATE_VARIABLE, "action": "MAINTAIN", "value": 0.0}],
+            "recommendation": f"The conveyor belt and material flow are normal. Maintain the {FEED_RATE_VARIABLE} between {FEED_RATE_NORMAL_MIN} and {FEED_RATE_NORMAL_MAX} tph."
+        }
+    elif "conveyor_belt_spillage" in uri:
+        return {
+            "recommendation_type": "FLOW_ADJUSTMENT",
+            "kpi_focus": KPI_FOCUS,
+            "visual_finding": "Significant material spillage detected along the belt edges, indicating potential overload or misalignment.",
+            "severity_level": "medium",
+            "adjustments": [{"variable": FEED_RATE_VARIABLE, "action": "DECREASE", "value": 0.2}],
+            "recommendation": f"WARNING: Material spillage detected. Immediately decrease the {FEED_RATE_VARIABLE} by 0.2 tph to reduce loading and prevent further loss. Check belt alignment."
+        }
+    elif "conveyor_belt_jammed" in uri:
+        return {
+            "recommendation_type": "CRITICAL_FLOW_STOP",
+            "kpi_focus": KPI_FOCUS,
+            "visual_finding": "Critical material jam and backlog at the transfer point or chute. Immediate shutdown required to prevent motor damage.",
+            "severity_level": "high",
+            "adjustments": [{"variable": FEED_RATE_VARIABLE, "action": "STOP", "value": 0.0}],
+            "recommendation": "CRITICAL ALERT: Material jam detected. Immediately stop the raw meal feed rate (set to 0 tph) and initiate emergency maintenance procedure to clear the obstruction."
+        }
+    elif "conveyor_belt_damage" in uri:
+        return {
+            "recommendation_type": "MAINTENANCE_REQUIRED",
+            "kpi_focus": KPI_FOCUS,
+            "visual_finding": "Visible, severe damage (tear or hole) in the conveyor belt surface. Continued operation risks catastrophic failure.",
+            "severity_level": "high",
+            "adjustments": [{"variable": FEED_RATE_VARIABLE, "action": "DECREASE", "value": 0.3}],
+            "recommendation": f"CRITICAL WARNING: Severe belt damage detected. Decrease the {FEED_RATE_VARIABLE} by 0.3 tph immediately and schedule urgent maintenance for belt replacement."
+        }
+    else:
+        # Default fallback
+        return {
+            "recommendation_type": "WARNING",
+            "kpi_focus": KPI_FOCUS,
+            "visual_finding": f"Unclassified deviation detected: {os.path.basename(uri)}. Requires cautious adjustment.",
+            "severity_level": "medium",
+            "adjustments": [{"variable": FEED_RATE_VARIABLE, "action": "DECREASE", "value": 0.2}],
+            "recommendation": f"Unclassified visual anomaly detected. Decrease the {FEED_RATE_VARIABLE} by 0.2 tph as a cautionary measure."
+        }
+
+
+def create_conveyor_prompt(test_image_b64: str, test_image_mimetype: str) -> tuple[list, str]:
+    """
+    Constructs the full list of contents (few-shot examples + live image) and 
+    returns the system instruction for Conveyor Analysis.
+    Returns: (list of Content, system_instruction string)
+    """
+    
+    # Updated system instruction for Conveyor Analysis
+    system_instruction = (
+        "You are the autonomous Raw Material Flow Controller. Analyze the attached images of the conveyor belt "
+        "to assess material flow, belt condition, and potential equipment failure. "
+        "Your primary objective is to maintain steady material feed and prevent damage by recommending immediate adjustments "
+        f"to the '{FEED_RATE_VARIABLE}'. The action can be 'MAINTAIN', 'DECREASE', or 'STOP'. "
+        "Output MUST be a single JSON object matching the schema shown in the examples."
+        "\n\n--- DYNAMIC LOGIC RULES ---"
+        "\n1. Severity Level: Classify the condition into 'low' (normal/minor), 'medium' (spillage/warning), or 'high' (jam/damage/critical)."
+        "\n2. Adjustment Value (Dynamic):"
+        f"\n  - If action is 'DECREASE' and severity is 'low', set 'value' to 0.1."
+        f"\n  - If action is 'DECREASE' and severity is 'medium', set 'value' to 0.2."
+        f"\n  - If action is 'DECREASE' and severity is 'high', set 'value' to 0.3."
+        "\n  - If action is 'MAINTAIN' or 'STOP', 'value' MUST be 0.0."
+        "\n3. Recommendation Key: Generate a **unique, non-repetitive** natural language explanation (1-2 sentences) of the visual finding and the prescribed corrective action. The tone should be authoritative and informative. Reference the feed rate range when the action is MAINTAIN."
+    )
+    
+    contents = [] 
+    
+    try:
+        CONVEYOR_FEW_SHOT_URIS = get_gcs_image_uris(GCS_BUCKET_NAME, CONVEYOR_GCS_PREFIX)
+    except ValueError as e:
+        raise e
+    
+    # 2. Add few-shot examples (user query + model response)
+    for i, uri in enumerate(CONVEYOR_FEW_SHOT_URIS):
+        target_json = get_target_json_conveyor(uri) 
+        
+        # User query (text + image URI)
+        text_part = types.Part(text=f"EXAMPLE {i+1}: Analyze this conveyor image at {uri}")
+        
+        # Using explicit types.FileData inside types.Part for GCS URIs
+        uri_part = types.Part(
+            file_data=types.FileData(
+                file_uri=uri,
+                mime_type="image/jpeg", 
+            )
+        )
+        
+        # Append the User Content
+        contents.append(
+            types.Content(role="user", parts=[text_part, uri_part])
+        )
+        
+        # Model response (JSON text)
+        json_part = types.Part(text=json.dumps(target_json))
+        
+        # Append the Model Content
+        contents.append(
+            types.Content(role="model", parts=[json_part])
+        )
+
+    # 3. Add the final live image task (text + image bytes)
+    live_image_bytes = b64decode(test_image_b64)
+    
+    final_text_part = types.Part(text="FINAL TASK: Analyze this current live conveyor image and provide the required JSON recommendation, strictly following the specified DYNAMIC LOGIC RULES.")
+    
+    final_image_part = types.Part.from_bytes(data=live_image_bytes, mime_type=test_image_mimetype)
+    
+    contents.append(
+        types.Content(role="user", parts=[final_text_part, final_image_part])
+    )
+    
+    return contents, system_instruction
+
+# -----------------------------------------------------------------------------
+
+# --- 5. MAIN ENTRY POINT HANDLER ---
+
+def flask_predict(request_param=None):
+    """
+    Handles the main POST request for image analysis, including CORS preflight.
+    """
+    # Handle CORS preflight request
+    if flask_request.method == 'OPTIONS':
+        response = app.response_class(
+            response='',
+            status=204, 
+            mimetype='text/plain'
+        )
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        return response
+
+    try:
+        request_json = flask_request.get_json(silent=True) 
+
+        if not request_json:
+            raise ValueError("Invalid JSON or empty request body.")
+
+        if 'image_data_b64' not in request_json:
+            raise KeyError("Missing required key 'image_data_b64' in the JSON payload.")
+
+        test_image_b64 = request_json['image_data_b64']
+        test_image_mimetype = request_json.get('mime_type', 'image/jpeg')
+        
+        gemini_client = get_gemini_client()
+
+        # Build the few-shot prompt
+        prompt_contents, system_instruction = create_conveyor_prompt(test_image_b64, test_image_mimetype)
+
+        # Call the Gemini API
+        response = gemini_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt_contents,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction, 
+                response_mime_type="application/json",
+                temperature=0.0
+            )
+        )
+        
+        flask_response = app.response_class(
+            response=response.text,
+            status=200,
+            mimetype='application/json'
+        )
+        flask_response.headers.add('Access-Control-Allow-Origin', '*')
+        return flask_response
+
+    except Exception as e:
+        print(f"Error processing request: {e}")
+        error_response = jsonify({"error": str(e)})
+        error_response.headers.add('Access-Control-Allow-Origin', '*')
+        return error_response, 500
+
+# -----------------------------------------------------------------------------
+
+# --- 6. FLASK ROUTES ---
+
+@app.route('/', methods=['POST', 'OPTIONS'])
+def flask_route():
+    return flask_predict()
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "healthy"}), 200
+
+# --- 7. STANDALONE SERVER STARTUP ---
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port, debug=False)
