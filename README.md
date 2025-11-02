@@ -1,4 +1,4 @@
-# ⚙️ Project CINDER: The Autonomous Generative AI Co-Pilot for Cement Kilns
+# ⚙️ Project CINDER: The Autonomous Generative AI Co-Pilot for Cement Plant
 
 ## 🌟 Introduction & Problem Solved
 
@@ -69,5 +69,6 @@ The system is built on a scalable, event-driven architecture optimized for low-l
 ## 📺 Demo Video
 
 **The full journey runs end-to-end without breaking.**
+
 
 https://drive.google.com/file/d/17HERe76aduNLt8Gr4YjHhMRRxEGiRRk1/
