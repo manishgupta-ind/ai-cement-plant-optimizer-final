@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Cement Plant Optimization Platform - Setup Guide</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; max-width: 900px; margin: 0 auto; padding: 20px; }
+        h1 { color: #21618C; border-bottom: 2px solid #D6DBDF; padding-bottom: 10px; }
+        h2 { color: #154360; border-bottom: 1px solid #EBEDEF; padding-bottom: 5px; margin-top: 25px; }
+        h3 { color: #1F618D; margin-top: 20px; }
+        code { background-color: #F8F9F9; padding: 2px 4px; border-radius: 3px; font-size: 0.9em; }
+        pre { background-color: #EAECEE; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid #D6DBDF; padding: 10px; text-align: left; }
+        th { background-color: #F0F3F4; color: #154360; }
+        ul { padding-left: 20px; }
+        .note { border-left: 5px solid #F0B27A; background-color: #FEF9E7; padding: 10px; margin: 15px 0; }
+    </style>
+</head>
+<body>
+
+<h1>Setup Guide: AI Cement Plant Optimization Platform</h1>
+
+<p>Master the deployment of a state-of-the-art, end-to-end AI platform on Google Cloud and Firebase. This definitive guide provides the complete, refined framework for real-time Cement Plant performance monitoring and the automated delivery of intelligent, prescriptive operational intelligence, guaranteeing optimized output across all dynamic operating conditions.</p>
+
+<hr>
+
+<h2>I. Google Cloud Project & Core Setup</h2>
+
+<p>First, set up your core GCP project, data storage, and enable necessary services.</p>
+
+<h3>1. Create Project and Enable APIs</h3>
+<ol>
+    <li>**Create a New GCP Project:**
+        <ul>
+            <li>Create a new project in the Google Cloud Console. Use a unique ID, such as <code>genai-cement-optimizer-hack</code>. We will refer to this as <code>&lt;PROJECT-ID&gt;</code>.</li>
+        </ul>
+    </li>
+    <li>**Enable Required APIs:**
+        <ul>
+            <li>Run the following commands in your local terminal (ensure <code>gcloud</code> CLI is installed and configured to your <code>&lt;PROJECT-ID&gt;</code>):</li>
+        </ul>
+    </li>
+</ol>
+<pre><code># Core Services
+gcloud services enable compute.googleapis.com
+gcloud services enable cloudstorage.googleapis.com
+gcloud services enable bigquery.googleapis.com
+
+# AI/ML Services
+gcloud services enable aiplatform.googleapis.com
+
+# Deployment Services (Cloud Run, Artifact Registry, Firebase)
+gcloud services enable cloudbuild.googleapis.com
+gcloud services enable run.googleapis.com
+gcloud services enable artifactregistry.googleapis.com
+gcloud services enable firebase.googleapis.com
+</code></pre>
+
+<h3>2. Google Cloud Storage (GCS) - Data and Image Staging</h3>
+<div class="note">
+    <p>The <strong>raw telemetry data</strong> is staged in GCS, then transformed and made available for Vertex AI via BigQuery. The <strong>raw image data</strong> is also staged in GCS, then transformed and made available for Vertex AI via BigQuery.</p>
+</div>
+<ol>
+    <li>**Create Data Bucket:**
+        <ul>
+            <li>Navigate to **Cloud Storage**. Click **CREATE BUCKET**.</li>
+            <li>Name it uniquely (e.g., <code>cement-optimizer-data-&lt;PROJECT-ID&gt;</code>).</li>
+            <li>Select a **Region** (e.g., <code>us-central1</code>). <strong>Record this region</strong>, as all subsequent services (BigQuery, Vertex AI, Cloud Run) must use it for optimal performance.</li>
+            <li>Upload your raw data file (<code>synthetic_cement_plant_data_v4.csv</code>) to this bucket.</li>
+        </ul>
+    </li>
+    <li>**Create Few-Shot Image Folders (for Gemini):**
+        <ul>
+            <li>In the same bucket (or a new image-specific bucket), create the following folders, which hold the example images required for **Few-Shot Prompting** in the Gemini vision services:
+                <ul>
+                    <li>**<code>kiln/</code>** (for Kiln image analysis examples)</li>
+                    <li>**<code>conveyor/</code>** (for Conveyor Belt image analysis examples)</li>
+                </ul>
+            </li>
+            <li>Upload the relevant example images (e.g., <code>kiln_operating_normal_1.jpg</code>, <code>conveyor_belt_normal.jpg</code>) into their respective folders.</li>
+        </ul>
+    </li>
+</ol>
+
+<hr>
+
+<h2>II. BigQuery - Data Ingestion and Transformation</h2>
+
+<p>This prepares the data for the two target KPIs: <code>clinker_free_lime_pct</code> and <code>kiln_specific_thermal_energy</code>.</p>
+
+<ol>
+    <li>**Create Dataset:**
+        <ul>
+            <li>Navigate to **BigQuery**. Click your project name, then **CREATE DATASET**.</li>
+            <li>Name it: <code>cement_data</code> and select the **same Region** as your GCS bucket.</li>
+        </ul>
+    </li>
+    <li>**Create Table from GCS (Raw Data):**
+        <ul>
+            <li>Create a table named <code>raw_plant_telemetry</code> by ingesting your CSV file from GCS, using **Auto detect** for the schema.</li>
+        </ul>
+    </li>
+    <li>**Create the Training Data View (Lagged Features):**
+        <ul>
+            <li>This view calculates the necessary features, such as lagged sensor readings.</li>
+            <li>Click **COMPOSE NEW QUERY** and run your SQL script.</li>
+            <li>The resulting View, **<code>cement_data.training_data_view</code>**, will be the data source for both AutoML models.</li>
+        </ul>
+    </li>
+</ol>
+<pre><code>CREATE OR REPLACE VIEW `cement_data.training_data_view` AS
+SELECT
+    *, -- All original columns
+    LAG(raw_meal_lsf_ratio, 300) OVER (ORDER BY timestamp) AS raw_meal_lsf_ratio_lag_300
+    -- Include all other necessary lagged feature calculations here (e.g., ~5 hours of lag)
+FROM
+    `cement_data.raw_plant_telemetry`
+WHERE
+    -- Filter out initial rows where lag values are NULL
+    raw_meal_lsf_ratio_lag_300 IS NOT NULL;
+</code></pre>
+
+<hr>
+
+<h2>III. Vertex AI - Model Training and Deployment</h2>
+
+<p>You will train two models (one for each KPI) and deploy them to their own dedicated endpoints for low-latency predictions.</p>
+
+<h3>1. AutoML Training Job (Repeat for 2 Models)</h3>
+<ol>
+    <li>**Create Vertex AI Dataset:** (Repeat once for each KPI model)
+        <ul>
+            <li>Navigate to **Vertex AI** $\rightarrow$ **Datasets**. Click **CREATE**.</li>
+            <li>**Name:** E.g., <code>clinker_free_lime_pct_dataset</code>.</li>
+            <li>**Data Source:** Use the BigQuery View URI: <code>bq://&lt;PROJECT-ID&gt;.cement_data.training_data_view</code>.</li>
+        </ul>
+    </li>
+    <li>**Start Training:** (Repeat once for each KPI model)
+        <ul>
+            <li>Open the dataset and click **TRAIN NEW MODEL**.</li>
+            <li>**Training Method:** **AutoML**.</li>
+            <li>**Model Objective:** **Regression**.</li>
+            <li>**Target column:** Select the target KPI (e.g., <code>clinker_free_lime_pct</code> for the first model, then <code>kiln_specific_thermal_energy</code> for the second).</li>
+            <li>**Optimization objective:** Minimize **Root Mean Squared Error (RMSE)**.</li>
+            <li>Set a reasonable **Training budget** (e.g., 4-6 compute hours).</li>
+        </ul>
+    </li>
+</ol>
+
+<h3>2. Model Deployment to Endpoint (2 Endpoints)</h3>
+<p>You must create a separate, dedicated endpoint for each of your **two trained models**.</p>
+<ol>
+    <li>**Deploy Model:** (Repeat for both trained models)
+        <ul>
+            <li>Go to **Vertex AI** $\rightarrow$ **Models**. Select a trained model. Go to the **Deploy &amp; test** tab.</li>
+            <li>Click **Deploy to endpoint**.</li>
+            <li>**Endpoint name:** Use a clear, descriptive name (e.g., <code>clinker-free-lime-pct-endpoint</code>).</li>
+            <li>**Machine type:** Select a suitable type (e.g., <code>n1-standard-2</code>).</li>
+            <li>**Min/Max compute nodes:** Set both to **1**.</li>
+            <li>Click **Deploy**.</li>
+        </ul>
+    </li>
+    <li>**Record Endpoint IDs:**
+        <ul>
+            <li>Go to **Vertex AI** $\rightarrow$ **Online Prediction** $\rightarrow$ **Endpoints**.</li>
+            <li>**Copy the unique Endpoint ID** for each of your **two deployed models**. These IDs are critical configuration variables for your backend logic.</li>
+        </ul>
+    </li>
+</ol>
+
+<hr>
+
+<h2>IV. Cloud Run - Backend Services Deployment (5 Services)</h2>
+
+<p>You are deploying **five** distinct services in Cloud Run to handle the two-part optimization and two-part image analysis. All services must use the **same region** as your data.</p>
+
+<h3>1. Service Account IAM Setup</h3>
+<p>Your Cloud Run services need permission to interact with Vertex AI, Gemini, and GCS.</p>
+<ol>
+    <li>**Identify Service Account (SA):** The default SA is typically the Compute Engine default: <code>PROJECT_NUMBER-compute@developer.gserviceaccount.com</code>.</li>
+    <li>**Grant Roles:** Go to **IAM &amp; Admin** $\rightarrow$ **IAM** and grant the following roles to this Service Account:
+        <ul>
+            <li>**Vertex AI User** (<code>roles/aiplatform.user</code>) - Allows the services to call the AutoML endpoints and Gemini via Vertex AI.</li>
+            <li>**Storage Object Viewer** (<code>roles/storage.objectViewer</code>) - Allows the Image Analysis services to read the few-shot images from your GCS bucket.</li>
+        </ul>
+    </li>
+</ol>
+
+<h3>2. Deploy Cloud Run Services</h3>
+<p>You will run the <code>gcloud run deploy</code> command **five times**, once for each distinct microservice.</p>
+<table>
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Service Name</th>
+            <th>Purpose</th>
+            <th>Notes</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>1</td>
+            <td><code>clinker-kpi-predictor</code></td>
+            <td>Predicts <code>clinker_free_lime_pct</code>.</td>
+            <td>Calls the first AutoML Endpoint.</td>
+        </tr>
+        <tr>
+            <td>2</td>
+            <td><code>energy-kpi-predictor</code></td>
+            <td>Predicts <code>kiln_specific_thermal_energy</code>.</td>
+            <td>Calls the second AutoML Endpoint.</td>
+        </tr>
+        <tr>
+            <td>3</td>
+            <td><code>optimization-recommender</code></td>
+            <td>Receives 2 KPI predictions, uses <strong>Gemini</strong> to provide operational recommendations.</td>
+            <td>Single model handles both KPIs.</td>
+        </tr>
+        <tr>
+            <td>4</td>
+            <td><code>kiln-image-analyzer</code></td>
+            <td>Uses <strong>Gemini</strong> (Vision) for Kiln image defect analysis.</td>
+            <td>Reads from GCS <code>kiln/</code> folder.</td>
+        </tr>
+        <tr>
+            <td>5</td>
+            <td><code>conveyor-image-analyzer</code></td>
+            <td>Uses <strong>Gemini</strong> (Vision) for Conveyor Belt image defect analysis.</td>
+            <td>Reads from GCS <code>conveyor/</code> folder.</td>
+        </tr>
+    </tbody>
+</table>
+
+<p><strong>Deployment Command Template</strong> (Repeat 5 times, changing the service name):</p>
+<pre><code>gcloud run deploy &lt;SERVICE-NAME&gt; \
+  --source . \
+  --region us-central1 \
+  --platform managed \
+  --allow-unauthenticated \
+  --min-instances 0 \
+  --max-instances 2
+</code></pre>
+
+<h3>3. Record All Service URLs</h3>
+<ul>
+    <li>After each deployment, **copy the Service URL** from the terminal output. These **five URLs** are the API endpoints that your frontend will call.</li>
+</ul>
+
+<hr>
+
+<h2>V. Firebase Hosting - Frontend Deployment</h2>
+
+<p>The application frontend is a static HTML/JS file hosted via Firebase.</p>
+
+<h3>1. Initialize Firebase Project</h3>
+<ol>
+    <li>**Log In and Initialize:**
+        <pre><code>firebase login
+firebase init
+</code></pre>
+    </li>
+    <li>**Follow Prompts:**
+        <ul>
+            <li>Select **Hosting: Configure files for Firebase Hosting**.</li>
+            <li>Choose **Use an existing project** and select your GCP project ID.</li>
+            <li>**Public directory?** Type <code>public</code>.</li>
+            <li>**Configure as a single-page app?** Type <code>N</code> (No).</li>
+        </ul>
+    </li>
+</ol>
+
+<h3>2. Prepare and Deploy Frontend</h3>
+<ol>
+    <li>**Update Cloud Run URLs in <code>index.html</code>:**
+        <ul>
+            <li>In your local <code>public/index.html</code> file, update the JavaScript logic to call the **five Cloud Run Service URLs** you recorded in the previous step. You will have separate POST requests for each service.</li>
+        </ul>
+    </li>
+    <li>**Deploy the Application:**
+        <pre><code>firebase deploy --only hosting
+</code></pre>
+    </li>
+    <li>**Verify and Test:** The output will provide the final **Hosting URL** (e.g., <code>https://[Your-Project-ID].web.app</code>).</li>
+</ol>
+
+<hr>
+
+<h2>VI. Technology Stack Summary</h2>
+
+<p>This solution leverages a modern, serverless, and decoupled architecture on Google Cloud Platform and Firebase, utilizing specialized services for each phase of the MLOps pipeline and application serving.</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>GCP/Firebase Service</th>
+            <th>Category</th>
+            <th>Role in the Solution</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>Cloud Run</strong></td>
+            <td>Serverless Compute</td>
+            <td>Hosts the <strong>five backend microservices</strong>: 2 KPI Predictors, 1 Gemini Recommender, 2 Gemini Image Analyzers. Provides automatic scaling from zero.</td>
+        </tr>
+        <tr>
+            <td><strong>Vertex AI (AutoML)</strong></td>
+            <td>Machine Learning</td>
+            <td>Used for <strong>training the two Regression models</strong> that predict the critical KPIs.</td>
+        </tr>
+        <tr>
+            <td><strong>Vertex AI (Generative AI)</strong></td>
+            <td>Generative AI</td>
+            <td>Powers the <strong>Optimization Recommender</strong> and the <strong>Kiln/Conveyor Image Analyzers</strong> using multimodal Few-Shot prompting.</td>
+        </tr>
+        <tr>
+            <td><strong>Vertex AI (Endpoints)</strong></td>
+            <td>Machine Learning</td>
+            <td>Provides <strong>managed, low-latency deployment endpoints</strong> to serve the predictions from the two trained AutoML models.</td>
+        </tr>
+        <tr>
+            <td><strong>BigQuery</strong></td>
+            <td>Data Warehouse</td>
+            <td><strong>Stores, manages, and transforms</strong> the plant telemetry data, creating the training data view with lagged features.</td>
+        </tr>
+        <tr>
+            <td><strong>Cloud Storage (GCS)</strong></td>
+            <td>Storage</td>
+            <td>Serves as the <strong>central staging area</strong> for raw data, model artifacts, and Few-Shot images.</td>
+        </tr>
+        <tr>
+            <td><strong>Firebase Hosting</strong></td>
+            <td>Frontend Hosting</td>
+            <td>Provides <strong>fast, secure, and globally distributed hosting</strong> for the web application frontend.</td>
+        </tr>
+    </tbody>
+</table>
+
+</body>
+</html>
