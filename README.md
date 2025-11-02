@@ -70,4 +70,4 @@ The system is built on a scalable, event-driven architecture optimized for low-l
 
 **The full journey runs end-to-end without breaking.**
 
-[Insert Your 3-Minute Demo Video Link Here]
+https://drive.google.com/file/d/17HERe76aduNLt8Gr4YjHhMRRxEGiRRk1/
